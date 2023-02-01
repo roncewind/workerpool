@@ -17,6 +17,7 @@ type Worker struct {
 	ctx     context.Context
 	id      string
 	jobQ    <-chan Job
+	quit    chan struct{}
 	started bool
 }
 
@@ -28,7 +29,6 @@ type WorkerPoolFunctions interface {
 
 type WorkerPool struct {
 	ctx         context.Context
-	quit        chan struct{}
 	jobQ        chan Job
 	workers     map[string]*Worker
 	workerIdNum int
@@ -46,6 +46,7 @@ func (wp *WorkerPool) AddWorker() error {
 func (wp *WorkerPool) RemoveWorker() error {
 	// TODO: protect so that workers isn't accessed by two goroutines
 	workerCount := len(wp.workers)
+	fmt.Println("count", len(wp.workers))
 	if workerCount <= 0 {
 		return nil
 	}
@@ -57,9 +58,9 @@ func (wp *WorkerPool) RemoveWorker() error {
 	}
 	sort.Strings(keys)
 	id := keys[0]
-	// TODO:  shutdown worker gracefully
-	wp.workers[id].Stop()
+	close(wp.workers[id].quit)
 	delete(wp.workers, id)
+	fmt.Println("count", len(wp.workers))
 	return nil
 }
 
@@ -80,7 +81,6 @@ func NewWorkerPool(ctx context.Context, cancel func(), workerCount int, jobQ cha
 	workerPool := WorkerPool{
 		ctx:     ctx,
 		jobQ:    jobQ,
-		quit:    make(chan struct{}),
 		workers: make(map[string]*Worker),
 	}
 
@@ -88,7 +88,6 @@ func NewWorkerPool(ctx context.Context, cancel func(), workerCount int, jobQ cha
 	for i := 0; i < workerCount; i++ {
 		workerPool.AddWorker()
 	}
-
 	return workerPool
 }
 
@@ -98,6 +97,7 @@ func createWorker(ctx context.Context, id string, jobQ chan Job) *Worker {
 		ctx:     ctx,
 		id:      id,
 		jobQ:    jobQ,
+		quit:    make(chan struct{}),
 		started: false,
 	}
 }
@@ -109,9 +109,13 @@ func (w *Worker) Start() {
 		// use select to test if our context has completed
 		select {
 		case <-w.ctx.Done():
-			w.started = false
 			w.Stop()
+			return
+		case <-w.quit:
+			w.Stop()
+			return
 		case j := <-w.jobQ:
+			fmt.Printf("%s:", w.id)
 			err := j.Execute()
 			if err != nil {
 				j.OnError(err)
@@ -121,5 +125,7 @@ func (w *Worker) Start() {
 }
 
 func (w *Worker) Stop() {
+	// TODO:  shutdown worker gracefully
+	w.started = false
 	fmt.Println(w.id, "says they're stopping.")
 }
