@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"sort"
+	"syscall"
+	"time"
 )
 
 // ----------------------------------------------------------------------------
@@ -30,6 +34,7 @@ type WorkerPoolFunctions interface {
 type WorkerPool struct {
 	ctx         context.Context
 	jobQ        chan Job
+	stopped     chan struct{}
 	workers     map[string]*Worker
 	workerIdNum int
 }
@@ -74,15 +79,71 @@ func (wp *WorkerPool) Start() error {
 	return nil
 }
 
+// ----------------------------------------------------------------------------
+// gracefulShutdown waits for terminating syscalls then signals workers to shutdown
+func (wp *WorkerPool) gracefulShutdown(cancel func(), timeout time.Duration) chan struct{} {
+	sigShutdown := make(chan struct{})
+
+	go func() {
+		defer close(sigShutdown)
+		sig := make(chan os.Signal, 1)
+		defer close(sig)
+
+		// PONDER: add any other syscalls?
+		// SIGHUP - hang up, lost controlling terminal
+		// SIGINT - interrupt (ctrl-c)
+		// SIGQUIT - quit (ctrl-\)
+		// SIGTERM - request to terminate
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+		killsig := <-sig
+		switch killsig {
+		case syscall.SIGINT:
+			fmt.Println("Killed with ctrl-c")
+		case syscall.SIGTERM:
+			fmt.Println("Killed with request to terminate")
+		case syscall.SIGQUIT:
+			fmt.Println("Killed with ctrl-\\")
+		case syscall.SIGHUP:
+			fmt.Println("Killed with hang up")
+		}
+
+		// set timeout for the cleanup to be done to prevent system hang
+		timeoutSignal := make(chan struct{})
+		timeoutFunc := time.AfterFunc(timeout, func() {
+			fmt.Printf("Timeout %.1fs have elapsed, force exit\n", timeout.Seconds())
+			close(timeoutSignal)
+		})
+
+		defer timeoutFunc.Stop()
+
+		// cancel the context
+		cancel()
+		fmt.Println("Shutdown signalled.")
+
+		// wait for timeout to finish and exit
+		<-timeoutSignal
+
+		// remove all workers
+		for k := range wp.workers {
+			delete(wp.workers, k)
+		}
+
+		sigShutdown <- struct{}{}
+	}()
+
+	return sigShutdown
+}
+
 var _ WorkerPoolFunctions = (*WorkerPool)(nil)
 
-func NewWorkerPool(ctx context.Context, cancel func(), workerCount int, jobQ chan Job) WorkerPool {
+func NewWorkerPool(ctx context.Context, cancel func(), workerCount int, jobQ chan Job, shutdownTimeout time.Duration) WorkerPool {
 
 	workerPool := WorkerPool{
 		ctx:     ctx,
 		jobQ:    jobQ,
 		workers: make(map[string]*Worker),
 	}
+	workerPool.stopped = workerPool.gracefulShutdown(cancel, shutdownTimeout*time.Second)
 
 	// create a number of workers.
 	for i := 0; i < workerCount; i++ {
@@ -103,6 +164,25 @@ func createWorker(ctx context.Context, id string, jobQ chan Job) *Worker {
 }
 
 func (w *Worker) Start() {
+	// make the goroutine signal its death, whether it's a panic or a return
+	defer func() {
+		if r := recover(); r != nil {
+			if err, ok := r.(error); ok {
+				fmt.Println(w.id, "recover", err)
+				// w.setError(err)
+			} else {
+				fmt.Println(w.id, "recover panic", r)
+				// w.setError(fmt.Errorf("panic happened %v", r))
+			}
+			// } else {
+			// a little tricky go code here.
+			//  err is picked up from the doWork return
+			// w.setError(err)
+		}
+		//TODO: how to restart or add a new worker
+		// workerChan <- &worker
+		w.Stop()
+	}()
 	w.started = true
 	fmt.Println(w.id, "says they're starting.")
 	for {
@@ -125,6 +205,9 @@ func (w *Worker) Start() {
 }
 
 func (w *Worker) Stop() {
+	if !w.started {
+		return
+	}
 	// TODO:  shutdown worker gracefully
 	w.started = false
 	fmt.Println(w.id, "says they're stopping.")
