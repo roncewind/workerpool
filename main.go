@@ -127,7 +127,7 @@ func main() {
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 	numWorkers := 5
 	ctx, cancel := context.WithCancel(context.Background())
-	jobQ := make(chan Job, 50)
+	jobQ := make(chan Job, numWorkers)
 
 	go simulateJobs(jobQ)
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
