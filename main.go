@@ -75,6 +75,51 @@ func (j *SimulatedJob) OnError(err error) {
 	fmt.Println(j.id, "error", err)
 }
 
+func simulateJobs(jobQ chan Job) {
+	jid := 0
+	// load some initial jobs
+	fmt.Println("Add 20 jobs.")
+	for i := 0; i < 20; i++ {
+		jid++
+		jobQ <- &SimulatedJob{
+			id:      fmt.Sprintf("job-%d", jid),
+			jobQ:    jobQ,
+			timeout: 5,
+		}
+	}
+	time.Sleep(10 * time.Second)
+	fmt.Println("Add 10 more jobs")
+	for i := 0; i < 10; i++ {
+		jid++
+		jobQ <- &SimulatedJob{
+			id:      fmt.Sprintf("job-%d", jid),
+			jobQ:    jobQ,
+			timeout: 5,
+		}
+	}
+	time.Sleep(5 * time.Second)
+	fmt.Println("Add 10 more jobs")
+	for i := 0; i < 10; i++ {
+		jid++
+		jobQ <- &SimulatedJob{
+			id:      fmt.Sprintf("job-%d", jid),
+			jobQ:    jobQ,
+			timeout: 5,
+		}
+	}
+	time.Sleep(1 * time.Second)
+	fmt.Println("Add 10 more jobs")
+	for i := 0; i < 10; i++ {
+		jid++
+		jobQ <- &SimulatedJob{
+			id:      fmt.Sprintf("job-%d", jid),
+			jobQ:    jobQ,
+			timeout: 5,
+		}
+	}
+	fmt.Println("Final jid:", jid)
+}
+
 // ----------------------------------------------------------------------------
 
 func main() {
@@ -82,102 +127,65 @@ func main() {
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 	numWorkers := 5
 	ctx, cancel := context.WithCancel(context.Background())
-	jobQ := make(chan Job, numWorkers)
-	jid := 0
+	jobQ := make(chan Job, 50)
 
-	go func() {
-		// load some initial jobs
-		for i := 0; i < 20; i++ {
-			jid++
-			jobQ <- &SimulatedJob{
-				id:      fmt.Sprintf("job-%d", jid),
-				jobQ:    jobQ,
-				timeout: 5,
-			}
-		}
-		ticker := time.NewTicker(20 * time.Second)
-		quiticker := time.NewTicker(65 * time.Second)
-		for {
-			select {
-			case <-ctx.Done():
-				fmt.Println("Context done final jid=", jid)
-				ticker.Stop()
-				quiticker.Stop()
-				return
-			case <-quiticker.C:
-				fmt.Println("Not adding any more jobs final jid=", jid)
-				ticker.Stop()
-				quiticker.Stop()
-				return
-			case <-ticker.C:
-				// load more jobs every few seconds
-				for i := 0; i < 10; i++ {
-					jid++
-					jobQ <- &SimulatedJob{
-						id:      fmt.Sprintf("job-%d", jid),
-						jobQ:    jobQ,
-						timeout: 5,
-					}
-				}
-			}
-		}
-	}()
+	go simulateJobs(jobQ)
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 
-	wp := NewWorkerPool(ctx, cancel, numWorkers, jobQ, 60)
+	wp := NewWorkerPool(ctx, cancel, numWorkers, jobQ, 10)
 	wp.Start()
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 
-	time.Sleep(1 * time.Second)
-	fmt.Println("===add worker===")
-	if wp.AddWorker() != nil {
-		fmt.Println("Error adding worker")
-	}
-	wp.Start()
-	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
+	// time.Sleep(1 * time.Second)
+	// fmt.Println("===add worker===")
+	// if wp.AddWorker() != nil {
+	// 	fmt.Println("Error adding worker")
+	// }
+	// wp.Start()
+	// fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 
-	time.Sleep(1 * time.Second)
-	fmt.Println("===remore worker 1===")
-	if wp.RemoveWorker() != nil {
-		fmt.Println("Error removing worker")
-	}
-	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
+	// time.Sleep(1 * time.Second)
+	// fmt.Println("===remore worker 1===")
+	// if wp.RemoveWorker() != nil {
+	// 	fmt.Println("Error removing worker")
+	// }
+	// fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 
-	time.Sleep(1 * time.Second)
-	fmt.Println("===remove worker 2===")
-	if wp.RemoveWorker() != nil {
-		fmt.Println("Error removing worker")
-	}
-	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		for {
-			select {
-			case <-ctx.Done():
-				ticker.Stop()
-				return
-			case <-ticker.C:
-				// output some stats every few seconds
-				fmt.Println("= Jobs left:", len(jobQ))
-				fmt.Println("= Workers left:", len(wp.workers))
-				fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
-			}
-		}
-	}()
+	// time.Sleep(1 * time.Second)
+	// fmt.Println("===remove worker 2===")
+	// if wp.RemoveWorker() != nil {
+	// 	fmt.Println("Error removing worker")
+	// }
+	// fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
+	// go func() {
+	// 	ticker := time.NewTicker(30 * time.Second)
+	// 	for {
+	// 		select {
+	// 		case <-ctx.Done():
+	// 			ticker.Stop()
+	// 			return
+	// 		case <-ticker.C:
+	// 			// output some stats every few seconds
+	// 			fmt.Println("= Jobs left:", len(jobQ))
+	// 			fmt.Println("= Workers left:", len(wp.workers))
+	// 			fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
+	// 		}
+	// 	}
+	// }()
 
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		for {
-			select {
-			case <-ctx.Done():
-				ticker.Stop()
-				return
-			case <-ticker.C:
-				// output some stats every few seconds
-				fmt.Println("===============tick", runtime.NumGoroutine())
-			}
-		}
-	}()
+	// go func() {
+	// 	ticker := time.NewTicker(10 * time.Second)
+	// 	for {
+	// 		select {
+	// 		case <-ctx.Done():
+	// 			ticker.Stop()
+	// 			return
+	// 		case <-ticker.C:
+	// 			// output some stats every few seconds
+	// 			fmt.Println("===============tick", runtime.NumGoroutine())
+	// 		}
+	// 	}
+	// }()
 	<-wp.stopped
 	fmt.Println("===final===")
 	fmt.Println("= Jobs left:", len(jobQ))

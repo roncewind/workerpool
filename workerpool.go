@@ -40,21 +40,25 @@ type WorkerPool struct {
 	workerIdNum      int
 }
 
+// ----------------------------------------------------------------------------
+
 func (wp *WorkerPool) AddWorker() error {
 	// TODO: protect so that workers isn't accessed by two goroutines
 
 	wp.idealWorkerCount++
 	wp.workerIdNum++
 	id := fmt.Sprintf("worker-%d", wp.workerIdNum)
-	wp.workers[id] = createWorker(wp.ctx, id, wp.jobQ)
+	wp.workers[id] = wp.createWorker(id)
 	return nil
 }
+
+// ----------------------------------------------------------------------------
 
 func (wp *WorkerPool) RemoveWorker() error {
 	// TODO: protect so that workers isn't accessed by two goroutines
 	wp.idealWorkerCount--
 	workerCount := len(wp.workers)
-	fmt.Println("count", len(wp.workers))
+	fmt.Println("Remove Worker before count", len(wp.workers))
 	if workerCount <= 0 {
 		return nil
 	}
@@ -68,11 +72,38 @@ func (wp *WorkerPool) RemoveWorker() error {
 	id := keys[0]
 	close(wp.workers[id].quit)
 	delete(wp.workers, id)
-	fmt.Println("count", len(wp.workers))
+	fmt.Println("Remove Worker after count", len(wp.workers))
 	return nil
 }
 
-func (wp *WorkerPool) Start() error {
+func (wp *WorkerPool) nanny() {
+	ticker := time.NewTicker(30 * time.Second)
+	for {
+		select {
+		case <-wp.ctx.Done():
+			fmt.Println("Exiting worker nanny")
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			// check up on the pool every so often and validate count
+			count := wp.idealWorkerCount - len(wp.workers)
+			fmt.Println("Ideal worker count:", wp.idealWorkerCount, "ideal-current count:", count)
+			if count > 0 {
+				for i := 0; i < count; i++ {
+					wp.workerIdNum++
+					id := fmt.Sprintf("worker-%d", wp.workerIdNum)
+					wp.workers[id] = wp.createWorker(id)
+				}
+			}
+			wp.startAllWorkers()
+		}
+	}
+}
+
+// ----------------------------------------------------------------------------
+
+func (wp *WorkerPool) startAllWorkers() error {
+
 	for id, worker := range wp.workers {
 		if !worker.started {
 			fmt.Println("Starting", id)
@@ -80,6 +111,29 @@ func (wp *WorkerPool) Start() error {
 		}
 	}
 	return nil
+}
+
+// ----------------------------------------------------------------------------
+
+func (wp *WorkerPool) Start() error {
+	// Worker nanny
+	go wp.nanny()
+
+	wp.startAllWorkers()
+	return nil
+}
+
+// ----------------------------------------------------------------------------
+
+func (wp *WorkerPool) createWorker(id string) *Worker {
+	fmt.Println("Creating", id)
+	return &Worker{
+		ctx:     wp.ctx,
+		id:      id,
+		jobQ:    wp.jobQ,
+		quit:    make(chan struct{}),
+		started: false,
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -138,7 +192,11 @@ func (wp *WorkerPool) gracefulShutdown(cancel func(), timeout time.Duration) cha
 	return sigShutdown
 }
 
+// ----------------------------------------------------------------------------
+
 var _ WorkerPoolFunctions = (*WorkerPool)(nil)
+
+// ----------------------------------------------------------------------------
 
 func NewWorkerPool(ctx context.Context, cancel func(), workerCount int, jobQ chan Job, shutdownTimeout time.Duration) WorkerPool {
 
@@ -156,16 +214,7 @@ func NewWorkerPool(ctx context.Context, cancel func(), workerCount int, jobQ cha
 	return workerPool
 }
 
-func createWorker(ctx context.Context, id string, jobQ chan Job) *Worker {
-	fmt.Println("Creating", id)
-	return &Worker{
-		ctx:     ctx,
-		id:      id,
-		jobQ:    jobQ,
-		quit:    make(chan struct{}),
-		started: false,
-	}
-}
+// ----------------------------------------------------------------------------
 
 func (w *Worker) Start() {
 	// make the goroutine signal its death, whether it's a panic or a return
@@ -182,10 +231,12 @@ func (w *Worker) Start() {
 			// a little tricky go code here.
 			//  err is picked up from the doWork return
 			// w.setError(err)
+
+			// restart this worker after panic
+			fmt.Println("Stop and re-start worker after panic")
+			w.Stop()
+			w.Start()
 		}
-		//TODO: how to restart or add a new worker
-		// workerChan <- &worker
-		w.Start()
 	}()
 	w.started = true
 	fmt.Println(w.id, "says they're starting.")
@@ -207,6 +258,8 @@ func (w *Worker) Start() {
 		}
 	}
 }
+
+// ----------------------------------------------------------------------------
 
 func (w *Worker) Stop() {
 	if !w.started {
