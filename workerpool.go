@@ -32,16 +32,18 @@ type WorkerPoolFunctions interface {
 }
 
 type WorkerPool struct {
-	ctx         context.Context
-	jobQ        chan Job
-	stopped     chan struct{}
-	workers     map[string]*Worker
-	workerIdNum int
+	ctx              context.Context
+	jobQ             chan Job
+	idealWorkerCount int
+	stopped          chan struct{}
+	workers          map[string]*Worker
+	workerIdNum      int
 }
 
 func (wp *WorkerPool) AddWorker() error {
 	// TODO: protect so that workers isn't accessed by two goroutines
 
+	wp.idealWorkerCount++
 	wp.workerIdNum++
 	id := fmt.Sprintf("worker-%d", wp.workerIdNum)
 	wp.workers[id] = createWorker(wp.ctx, id, wp.jobQ)
@@ -50,6 +52,7 @@ func (wp *WorkerPool) AddWorker() error {
 
 func (wp *WorkerPool) RemoveWorker() error {
 	// TODO: protect so that workers isn't accessed by two goroutines
+	wp.idealWorkerCount--
 	workerCount := len(wp.workers)
 	fmt.Println("count", len(wp.workers))
 	if workerCount <= 0 {
@@ -125,6 +128,7 @@ func (wp *WorkerPool) gracefulShutdown(cancel func(), timeout time.Duration) cha
 
 		// remove all workers
 		for k := range wp.workers {
+			fmt.Println("deleting worker", wp.workers[k].id, wp.workers[k].started)
 			delete(wp.workers, k)
 		}
 
@@ -181,7 +185,7 @@ func (w *Worker) Start() {
 		}
 		//TODO: how to restart or add a new worker
 		// workerChan <- &worker
-		w.Stop()
+		w.Start()
 	}()
 	w.started = true
 	fmt.Println(w.id, "says they're starting.")

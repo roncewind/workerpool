@@ -96,10 +96,18 @@ func main() {
 			}
 		}
 		ticker := time.NewTicker(20 * time.Second)
+		quiticker := time.NewTicker(65 * time.Second)
 		for {
 			select {
 			case <-ctx.Done():
+				fmt.Println("Context done final jid=", jid)
 				ticker.Stop()
+				quiticker.Stop()
+				return
+			case <-quiticker.C:
+				fmt.Println("Not adding any more jobs final jid=", jid)
+				ticker.Stop()
+				quiticker.Stop()
 				return
 			case <-ticker.C:
 				// load more jobs every few seconds
@@ -149,19 +157,29 @@ func main() {
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				// output some stats every from seconds
+				// output some stats every few seconds
 				fmt.Println("= Jobs left:", len(jobQ))
 				fmt.Println("= Workers left:", len(wp.workers))
 				fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 			}
 		}
 	}()
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		for {
+			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				// output some stats every few seconds
+				fmt.Println("===============tick", runtime.NumGoroutine())
+			}
+		}
+	}()
 	<-wp.stopped
 	fmt.Println("===final===")
 	fmt.Println("= Jobs left:", len(jobQ))
-	for j := range jobQ {
-		fmt.Println("Job", j)
-	}
-	fmt.Println("= Workers left:", len(wp.workers))
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 }
