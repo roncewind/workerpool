@@ -30,6 +30,7 @@ type Worker struct {
 
 var ErrNoWorkers = fmt.Errorf("attempted to create a WorkerPool with no workers")
 var ErrNilJobQueue = fmt.Errorf("attempted to create a WorkerPool without a job queue")
+var ErrNoWorkersToRemove = fmt.Errorf("all workers removed, none to remove")
 
 // ----------------------------------------------------------------------------
 
@@ -90,6 +91,7 @@ func (wp *WorkerPoolImpl) GetRunningWorkerCount() int {
 	defer wp.lock.Unlock()
 	count := 0
 	for _, worker := range wp.workers {
+		// fmt.Println("running:", worker.id, worker.running)
 		if worker.running {
 			count++
 		}
@@ -107,7 +109,7 @@ func (wp *WorkerPoolImpl) RemoveWorker() error {
 	defer wp.lock.Unlock()
 	workerCount := len(wp.workers)
 	if workerCount <= 0 {
-		return nil
+		return ErrNoWorkersToRemove
 	}
 
 	keys := make([]string, 0, workerCount)
@@ -139,7 +141,9 @@ func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
 	for _, worker := range wp.workers {
+		// fmt.Println(worker.id)
 		if !worker.running {
+			// fmt.Println("Starting ", worker.id)
 			go worker.Start(ctx)
 		}
 	}
