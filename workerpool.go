@@ -2,6 +2,7 @@ package workerpool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -20,10 +21,11 @@ type WorkerPoolImpl struct {
 }
 
 type Worker struct {
-	id      string
-	jobQ    <-chan Job
-	quit    chan struct{}
-	running bool
+	currentJob Job
+	id         string
+	jobQ       <-chan Job
+	quit       chan struct{}
+	running    bool
 }
 
 var ErrNoWorkers = fmt.Errorf("attempted to create a WorkerPool with no workers")
@@ -96,7 +98,6 @@ func (wp *WorkerPoolImpl) RemoveWorker() error {
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
 	workerCount := len(wp.workers)
-	fmt.Println("Remove Worker before count", len(wp.workers))
 	if workerCount <= 0 {
 		return nil
 	}
@@ -120,7 +121,6 @@ func (wp *WorkerPoolImpl) RemoveWorker() error {
 	wp.workers[id].Stop()
 	close(wp.workers[id].quit)
 	delete(wp.workers, id)
-	fmt.Println("Remove Worker", id, "worker count:", len(wp.workers))
 	return nil
 }
 
@@ -163,9 +163,9 @@ func (w *Worker) Start(ctx context.Context) {
 		w.Stop()
 		if r := recover(); r != nil {
 			if err, ok := r.(error); ok {
-				fmt.Println(w.id, "recover", err)
+				w.currentJob.OnError(err)
 			} else {
-				fmt.Println(w.id, "recover panic", r)
+				w.currentJob.OnError(errors.New("job failed with panic"))
 			}
 
 			// restart this worker after panic
@@ -173,18 +173,16 @@ func (w *Worker) Start(ctx context.Context) {
 		}
 	}()
 	w.running = true
-	fmt.Println(w.id, "says they're running.")
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-w.quit:
 			return
-		case j := <-w.jobQ:
-			fmt.Printf("%s:", w.id)
-			err := j.Execute()
+		case w.currentJob = <-w.jobQ:
+			err := w.currentJob.Execute()
 			if err != nil {
-				j.OnError(err)
+				w.currentJob.OnError(err)
 			}
 		}
 	}
@@ -198,5 +196,4 @@ func (w *Worker) Stop() {
 	}
 	// TODO:  shutdown worker gracefully
 	w.running = false
-	fmt.Println(w.id, "says they're stopping.")
 }
