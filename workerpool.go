@@ -126,21 +126,6 @@ func (wp *WorkerPoolImpl) RemoveWorker() error {
 
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPoolImpl) startAllWorkers(ctx context.Context) error {
-
-	wp.lock.Lock()
-	defer wp.lock.Unlock()
-	for id, worker := range wp.workers {
-		if !worker.running {
-			fmt.Println("Starting", id)
-			worker.Start(ctx)
-		}
-	}
-	return nil
-}
-
-// ----------------------------------------------------------------------------
-
 func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
 
 	wp.lock.Lock()
