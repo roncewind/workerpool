@@ -33,7 +33,8 @@ var ErrNilJobQueue = fmt.Errorf("attempted to create a WorkerPool without a job 
 
 // ----------------------------------------------------------------------------
 
-// Create a new WorkerPool
+// Create a new WorkerPool with the given number of workers pulling jobs from
+// the specified job queue
 func NewWorkerPool(workerCount int, jobQ chan Job) (WorkerPool, error) {
 
 	if workerCount < 1 {
@@ -58,6 +59,8 @@ func NewWorkerPool(workerCount int, jobQ chan Job) (WorkerPool, error) {
 
 // ----------------------------------------------------------------------------
 
+// Add a worker to the pool, the worker can then be started with
+// `workerPool.Start(ctx)`.
 func (wp *WorkerPoolImpl) AddWorker() error {
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
@@ -71,6 +74,8 @@ func (wp *WorkerPoolImpl) AddWorker() error {
 
 // ----------------------------------------------------------------------------
 
+// Get the current count of workers in the pool, they may not all be running.
+// To start workers that are not running use the Start(ctx) method
 func (wp *WorkerPoolImpl) GetWorkerCount() int {
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
@@ -79,6 +84,7 @@ func (wp *WorkerPoolImpl) GetWorkerCount() int {
 
 // ----------------------------------------------------------------------------
 
+// Get the current count of workers that are running.
 func (wp *WorkerPoolImpl) GetRunningWorkerCount() int {
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
@@ -93,6 +99,8 @@ func (wp *WorkerPoolImpl) GetRunningWorkerCount() int {
 
 // ----------------------------------------------------------------------------
 
+// Remove a worker from the pool, this will remove non-running workers first
+// followed by oldest workers next.
 func (wp *WorkerPoolImpl) RemoveWorker() error {
 	wp.idealWorkerCount--
 	wp.lock.Lock()
@@ -152,10 +160,12 @@ func (wp *WorkerPoolImpl) createWorker(id string) *Worker {
 
 // ----------------------------------------------------------------------------
 
+// Check at compile time that the implementation adheres to the interface.
 var _ WorkerPool = (*WorkerPoolImpl)(nil)
 
 // ----------------------------------------------------------------------------
 
+// Start the worker.  When this method exits it will call Stop()
 func (w *Worker) Start(ctx context.Context) {
 
 	defer func() {
@@ -190,10 +200,12 @@ func (w *Worker) Start(ctx context.Context) {
 
 // ----------------------------------------------------------------------------
 
+// Stop the workers, this only sets running to false.  For this working to quit,
+// issue: `close(worker.quit)`
 func (w *Worker) Stop() {
 	if !w.running {
 		return
 	}
-	// TODO:  shutdown worker gracefully
+	// TODO:  shutdown worker gracefully?? is there anything else to do?
 	w.running = false
 }
