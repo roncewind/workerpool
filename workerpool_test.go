@@ -2,6 +2,7 @@ package workerpool
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -240,6 +241,7 @@ func TestWorkerPool_TrivialJobExecution(t *testing.T) {
 // Panic Job implementation
 
 type PanicJob struct {
+	err interface{}
 }
 
 // ----------------------------------------------------------------------------
@@ -251,7 +253,7 @@ var _ Job = (*PanicJob)(nil)
 // Job implementation
 
 func (j *PanicJob) Execute() error {
-	panic("panic job")
+	panic(j.err)
 }
 
 func (j *PanicJob) OnError(err error) {
@@ -261,7 +263,61 @@ func TestWorkerPool_PanicJobExecution(t *testing.T) {
 	numberOfWorkers := 5
 	jobQ := make(chan Job, numberOfWorkers)
 	ctx, cancel := context.WithCancel(context.Background())
-	jobQ <- &PanicJob{}
+	jobQ <- &PanicJob{
+		err: errors.New("panic error type"),
+	}
+	jobQ <- &PanicJob{
+		err: "panic string type",
+	}
+	jobQ <- &PanicJob{
+		err: 100,
+	}
+
+	wp, err := NewWorkerPool(numberOfWorkers, jobQ)
+	if err != nil {
+		t.Fatal("error creating worker pool:", err)
+	}
+
+	wp.Start(ctx)
+	workerCount := wp.GetWorkerCount()
+	if numberOfWorkers != workerCount {
+		t.Fatalf("expected %d workers, found %d", numberOfWorkers, workerCount)
+	}
+	// Wait a moment for the workers to execute the job:
+	time.Sleep(1 * time.Second)
+	workerCount = wp.GetRunningWorkerCount()
+	if numberOfWorkers != workerCount {
+		t.Fatalf("expected %d running workers after panic, found %d", numberOfWorkers, workerCount)
+	}
+	cancel()
+}
+
+// ----------------------------------------------------------------------------
+// Error Job implementation
+
+type ErrorJob struct {
+}
+
+// ----------------------------------------------------------------------------
+// make sure ErrorJob implements the Job interface
+
+var _ Job = (*ErrorJob)(nil)
+
+// ----------------------------------------------------------------------------
+// Job implementation
+
+func (j *ErrorJob) Execute() error {
+	return errors.New("error")
+}
+
+func (j *ErrorJob) OnError(err error) {
+}
+
+func TestWorkerPool_ErrorJobExecution(t *testing.T) {
+	numberOfWorkers := 5
+	jobQ := make(chan Job, numberOfWorkers)
+	ctx, cancel := context.WithCancel(context.Background())
+	jobQ <- &ErrorJob{}
 
 	wp, err := NewWorkerPool(numberOfWorkers, jobQ)
 	if err != nil {

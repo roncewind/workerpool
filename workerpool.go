@@ -178,8 +178,10 @@ func (w *Worker) Start(ctx context.Context) {
 		if r := recover(); r != nil {
 			if err, ok := r.(error); ok {
 				w.currentJob.OnError(err)
+			} else if str, ok := r.(string); ok {
+				w.currentJob.OnError(errors.New(str))
 			} else {
-				w.currentJob.OnError(errors.New("job failed with panic"))
+				w.currentJob.OnError(errors.New("unknown error"))
 			}
 
 			// restart this worker after panic
