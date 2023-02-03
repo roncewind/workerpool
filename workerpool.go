@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 )
 
 // ----------------------------------------------------------------------------
@@ -31,6 +32,7 @@ type WorkerPool struct {
 	jobQ             chan Job
 	idealWorkerCount int
 	// stopped          chan struct{}
+	lock        sync.Mutex
 	workers     map[string]*Worker
 	workerIdNum int
 }
@@ -38,18 +40,21 @@ type WorkerPool struct {
 // ----------------------------------------------------------------------------
 
 func (wp *WorkerPool) AddWorker() error {
-	// TODO: protect so that workers isn't accessed by two goroutines
-
+	wp.lock.Lock()
+	defer wp.lock.Unlock()
 	wp.idealWorkerCount++
 	wp.workerIdNum++
 	id := fmt.Sprintf("worker-%d", wp.workerIdNum)
-	wp.workers[id] = wp.createWorker(id)
+	worker := wp.createWorker(id)
+	wp.workers[id] = worker
 	return nil
 }
 
 // ----------------------------------------------------------------------------
 
 func (wp *WorkerPool) GetWorkerCount() int {
+	wp.lock.Lock()
+	defer wp.lock.Unlock()
 	return len(wp.workers)
 }
 
@@ -58,6 +63,8 @@ func (wp *WorkerPool) GetWorkerCount() int {
 func (wp *WorkerPool) RemoveWorker() error {
 	// TODO: protect so that workers isn't accessed by two goroutines
 	wp.idealWorkerCount--
+	wp.lock.Lock()
+	defer wp.lock.Unlock()
 	workerCount := len(wp.workers)
 	fmt.Println("Remove Worker before count", len(wp.workers))
 	if workerCount <= 0 {
@@ -71,10 +78,9 @@ func (wp *WorkerPool) RemoveWorker() error {
 	}
 	sort.Strings(keys)
 	id := keys[0]
-	wp.cleanup(wp.workers[id])
-	// wp.workers[id].Stop()
-	// close(wp.workers[id].quit)
-	// delete(wp.workers, id)
+	wp.workers[id].Stop()
+	close(wp.workers[id].quit)
+	delete(wp.workers, id)
 	fmt.Println("Remove Worker after count", len(wp.workers))
 	return nil
 }
@@ -83,6 +89,8 @@ func (wp *WorkerPool) RemoveWorker() error {
 
 func (wp *WorkerPool) startAllWorkers(ctx context.Context) error {
 
+	wp.lock.Lock()
+	defer wp.lock.Unlock()
 	for id, worker := range wp.workers {
 		if !worker.running {
 			fmt.Println("Starting", id)
@@ -94,17 +102,10 @@ func (wp *WorkerPool) startAllWorkers(ctx context.Context) error {
 
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPool) cleanup(worker *Worker) {
-	fmt.Println("cleanup", worker.id)
-	worker.Stop()
-	close(worker.quit)
-	delete(wp.workers, worker.id)
-}
-
-// ----------------------------------------------------------------------------
-
 func (wp *WorkerPool) Start(ctx context.Context) error {
 
+	wp.lock.Lock()
+	defer wp.lock.Unlock()
 	for id, worker := range wp.workers {
 		if !worker.running {
 			fmt.Println("Starting new", id)
@@ -150,8 +151,10 @@ func NewWorkerPool(ctx context.Context, workerCount int, jobQ chan Job) WorkerPo
 // ----------------------------------------------------------------------------
 
 func (w *Worker) Start(ctx context.Context) {
-	// make the goroutine signal its death, whether it's a panic or a return
+
 	defer func() {
+		// make sure the worker is stopped when leaving this function
+		w.Stop()
 		if r := recover(); r != nil {
 			if err, ok := r.(error); ok {
 				fmt.Println(w.id, "recover", err)
@@ -167,22 +170,16 @@ func (w *Worker) Start(ctx context.Context) {
 
 			// restart this worker after panic
 			fmt.Println("Stop and re-start worker after panic")
-			w.Stop()
 			w.Start(ctx)
 		}
 	}()
 	w.running = true
 	fmt.Println(w.id, "says they're running.")
 	for {
-		// use select to test if our context has completed
 		select {
 		case <-ctx.Done():
-			// stop when all work is cancelled
-			w.Stop()
 			return
 		case <-w.quit:
-			// stop when this worker is asked to quit
-			w.Stop()
 			return
 		case j := <-w.jobQ:
 			fmt.Printf("%s:", w.id)
