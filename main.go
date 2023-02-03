@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 	"time"
 )
 
@@ -132,8 +135,8 @@ func main() {
 	go simulateJobs(jobQ)
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 
-	wp := NewWorkerPool(ctx, cancel, numWorkers, jobQ, 60)
-	wp.Start()
+	wp := NewWorkerPool(ctx, numWorkers, jobQ)
+	wp.Start(ctx)
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 
 	// time.Sleep(1 * time.Second)
@@ -186,8 +189,58 @@ func main() {
 	// 		}
 	// 	}
 	// }()
-	<-wp.stopped
+	// <-wp.stopped
+	<-gracefulShutdown(cancel, 3*time.Second)
 	fmt.Println("===final===")
 	fmt.Println("= Jobs left:", len(jobQ))
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
+}
+
+// ----------------------------------------------------------------------------
+// gracefulShutdown waits for terminating syscalls then signals workers to shutdown
+func gracefulShutdown(cancel func(), timeout time.Duration) chan struct{} {
+	sigShutdown := make(chan struct{})
+
+	go func() {
+		defer close(sigShutdown)
+		sig := make(chan os.Signal, 1)
+		defer close(sig)
+
+		// PONDER: add any other syscalls?
+		// SIGHUP - hang up, lost controlling terminal
+		// SIGINT - interrupt (ctrl-c)
+		// SIGQUIT - quit (ctrl-\)
+		// SIGTERM - request to terminate
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+		killsig := <-sig
+		switch killsig {
+		case syscall.SIGINT:
+			fmt.Println("Killed with ctrl-c")
+		case syscall.SIGTERM:
+			fmt.Println("Killed with request to terminate")
+		case syscall.SIGQUIT:
+			fmt.Println("Killed with ctrl-\\")
+		case syscall.SIGHUP:
+			fmt.Println("Killed with hang up")
+		}
+
+		// set timeout for the cleanup to be done to prevent system hang
+		timeoutSignal := make(chan struct{})
+		timeoutFunc := time.AfterFunc(timeout, func() {
+			fmt.Printf("Timeout %.1fs have elapsed, force exit\n", timeout.Seconds())
+			close(timeoutSignal)
+		})
+
+		defer timeoutFunc.Stop()
+
+		// cancel the context
+		cancel()
+		fmt.Println("Shutdown signalled.")
+
+		// wait for timeout to finish and exit
+		<-timeoutSignal
+		sigShutdown <- struct{}{}
+	}()
+
+	return sigShutdown
 }
