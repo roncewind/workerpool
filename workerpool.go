@@ -14,6 +14,21 @@ type Job interface {
 	OnError(error)
 }
 
+type WorkerPool interface {
+	AddWorker() error
+	GetWorkerCount() int
+	RemoveWorker() error
+	Start(context.Context) error
+}
+
+type WorkerPoolImpl struct {
+	jobQ             chan Job
+	idealWorkerCount int
+	lock             sync.Mutex
+	workers          map[string]*Worker
+	workerIdNum      int
+}
+
 type Worker struct {
 	id      string
 	jobQ    <-chan Job
@@ -21,25 +36,9 @@ type Worker struct {
 	running bool
 }
 
-type WorkerPoolFunctions interface {
-	AddWorker() error
-	GetWorkerCount() int
-	RemoveWorker() error
-	Start(context.Context) error
-}
-
-type WorkerPool struct {
-	jobQ             chan Job
-	idealWorkerCount int
-	// stopped          chan struct{}
-	lock        sync.Mutex
-	workers     map[string]*Worker
-	workerIdNum int
-}
-
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPool) AddWorker() error {
+func (wp *WorkerPoolImpl) AddWorker() error {
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
 	wp.idealWorkerCount++
@@ -52,7 +51,7 @@ func (wp *WorkerPool) AddWorker() error {
 
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPool) GetWorkerCount() int {
+func (wp *WorkerPoolImpl) GetWorkerCount() int {
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
 	return len(wp.workers)
@@ -60,8 +59,21 @@ func (wp *WorkerPool) GetWorkerCount() int {
 
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPool) RemoveWorker() error {
-	// TODO: protect so that workers isn't accessed by two goroutines
+func (wp *WorkerPoolImpl) GetRunningWorkerCount() int {
+	wp.lock.Lock()
+	defer wp.lock.Unlock()
+	count := 0
+	for _, worker := range wp.workers {
+		if worker.running {
+			count++
+		}
+	}
+	return count
+}
+
+// ----------------------------------------------------------------------------
+
+func (wp *WorkerPoolImpl) RemoveWorker() error {
 	wp.idealWorkerCount--
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
@@ -70,24 +82,33 @@ func (wp *WorkerPool) RemoveWorker() error {
 	if workerCount <= 0 {
 		return nil
 	}
-	// PONDER:  always kill the oldest worker?
-	keys := make([]string, 0, workerCount)
 
+	keys := make([]string, 0, workerCount)
+	stoppedId := ""
 	for k := range wp.workers {
 		keys = append(keys, k)
+		if !wp.workers[k].running {
+			stoppedId = k
+			break
+		}
 	}
-	sort.Strings(keys)
-	id := keys[0]
+	var id string
+	if stoppedId != "" {
+		id = stoppedId
+	} else {
+		sort.Strings(keys)
+		id = keys[0]
+	}
 	wp.workers[id].Stop()
 	close(wp.workers[id].quit)
 	delete(wp.workers, id)
-	fmt.Println("Remove Worker after count", len(wp.workers))
+	fmt.Println("Remove Worker", id, "worker count:", len(wp.workers))
 	return nil
 }
 
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPool) startAllWorkers(ctx context.Context) error {
+func (wp *WorkerPoolImpl) startAllWorkers(ctx context.Context) error {
 
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
@@ -102,7 +123,7 @@ func (wp *WorkerPool) startAllWorkers(ctx context.Context) error {
 
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPool) Start(ctx context.Context) error {
+func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
 
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
@@ -117,7 +138,7 @@ func (wp *WorkerPool) Start(ctx context.Context) error {
 
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPool) createWorker(id string) *Worker {
+func (wp *WorkerPoolImpl) createWorker(id string) *Worker {
 	fmt.Println("Creating", id)
 	return &Worker{
 		id:      id,
@@ -129,17 +150,16 @@ func (wp *WorkerPool) createWorker(id string) *Worker {
 
 // ----------------------------------------------------------------------------
 
-var _ WorkerPoolFunctions = (*WorkerPool)(nil)
+var _ WorkerPool = (*WorkerPoolImpl)(nil)
 
 // ----------------------------------------------------------------------------
 
-func NewWorkerPool(ctx context.Context, workerCount int, jobQ chan Job) WorkerPool {
+func NewWorkerPool(ctx context.Context, workerCount int, jobQ chan Job) WorkerPoolImpl {
 
-	workerPool := WorkerPool{
+	workerPool := WorkerPoolImpl{
 		jobQ:    jobQ,
 		workers: make(map[string]*Worker),
 	}
-	// workerPool.stopped = workerPool.gracefulShutdown(cancel, shutdownTimeout*time.Second)
 
 	// create a number of workers.
 	for i := 0; i < workerCount; i++ {
