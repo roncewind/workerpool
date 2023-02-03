@@ -87,36 +87,36 @@ func simulateJobs(jobQ chan Job) {
 			timeout: 5,
 		}
 	}
-	time.Sleep(10 * time.Second)
-	fmt.Println("Add 10 more jobs")
-	for i := 0; i < 10; i++ {
-		jid++
-		jobQ <- &SimulatedJob{
-			id:      fmt.Sprintf("job-%d", jid),
-			jobQ:    jobQ,
-			timeout: 5,
-		}
-	}
-	time.Sleep(5 * time.Second)
-	fmt.Println("Add 10 more jobs")
-	for i := 0; i < 10; i++ {
-		jid++
-		jobQ <- &SimulatedJob{
-			id:      fmt.Sprintf("job-%d", jid),
-			jobQ:    jobQ,
-			timeout: 5,
-		}
-	}
-	time.Sleep(1 * time.Second)
-	fmt.Println("Add 10 more jobs")
-	for i := 0; i < 10; i++ {
-		jid++
-		jobQ <- &SimulatedJob{
-			id:      fmt.Sprintf("job-%d", jid),
-			jobQ:    jobQ,
-			timeout: 5,
-		}
-	}
+	// time.Sleep(10 * time.Second)
+	// fmt.Println("Add 10 more jobs")
+	// for i := 0; i < 10; i++ {
+	// 	jid++
+	// 	jobQ <- &SimulatedJob{
+	// 		id:      fmt.Sprintf("job-%d", jid),
+	// 		jobQ:    jobQ,
+	// 		timeout: 5,
+	// 	}
+	// }
+	// time.Sleep(5 * time.Second)
+	// fmt.Println("Add 10 more jobs")
+	// for i := 0; i < 10; i++ {
+	// 	jid++
+	// 	jobQ <- &SimulatedJob{
+	// 		id:      fmt.Sprintf("job-%d", jid),
+	// 		jobQ:    jobQ,
+	// 		timeout: 5,
+	// 	}
+	// }
+	// time.Sleep(1 * time.Second)
+	// fmt.Println("Add 10 more jobs")
+	// for i := 0; i < 10; i++ {
+	// 	jid++
+	// 	jobQ <- &SimulatedJob{
+	// 		id:      fmt.Sprintf("job-%d", jid),
+	// 		jobQ:    jobQ,
+	// 		timeout: 5,
+	// 	}
+	// }
 	fmt.Println("Final jid:", jid)
 }
 
@@ -132,7 +132,7 @@ func main() {
 	go simulateJobs(jobQ)
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 
-	wp := NewWorkerPool(ctx, cancel, numWorkers, jobQ, 10)
+	wp := NewWorkerPool(ctx, cancel, numWorkers, jobQ, 60)
 	wp.Start()
 	fmt.Println("= Num Gorouting:", runtime.NumGoroutine())
 

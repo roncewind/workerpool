@@ -18,7 +18,7 @@ type Job interface {
 }
 
 type Worker struct {
-	ctx     context.Context
+	done    <-chan struct{}
 	id      string
 	jobQ    <-chan Job
 	quit    chan struct{}
@@ -26,13 +26,14 @@ type Worker struct {
 }
 
 type WorkerPoolFunctions interface {
-	AddWorker() error
+	AddWorker(context.Context) error
+	GetWorkerCount() int
 	RemoveWorker() error
 	Start() error
 }
 
 type WorkerPool struct {
-	ctx              context.Context
+	done             <-chan struct{}
 	jobQ             chan Job
 	idealWorkerCount int
 	stopped          chan struct{}
@@ -42,14 +43,20 @@ type WorkerPool struct {
 
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPool) AddWorker() error {
+func (wp *WorkerPool) AddWorker(ctx context.Context) error {
 	// TODO: protect so that workers isn't accessed by two goroutines
 
 	wp.idealWorkerCount++
 	wp.workerIdNum++
 	id := fmt.Sprintf("worker-%d", wp.workerIdNum)
-	wp.workers[id] = wp.createWorker(id)
+	wp.workers[id] = wp.createWorker(ctx, id)
 	return nil
+}
+
+// ----------------------------------------------------------------------------
+
+func (wp *WorkerPool) GetWorkerCount() int {
+	return len(wp.workers)
 }
 
 // ----------------------------------------------------------------------------
@@ -70,34 +77,12 @@ func (wp *WorkerPool) RemoveWorker() error {
 	}
 	sort.Strings(keys)
 	id := keys[0]
-	close(wp.workers[id].quit)
-	delete(wp.workers, id)
+	wp.cleanup(wp.workers[id])
+	// wp.workers[id].Stop()
+	// close(wp.workers[id].quit)
+	// delete(wp.workers, id)
 	fmt.Println("Remove Worker after count", len(wp.workers))
 	return nil
-}
-
-func (wp *WorkerPool) nanny() {
-	ticker := time.NewTicker(30 * time.Second)
-	for {
-		select {
-		case <-wp.ctx.Done():
-			fmt.Println("Exiting worker nanny")
-			ticker.Stop()
-			return
-		case <-ticker.C:
-			// check up on the pool every so often and validate count
-			count := wp.idealWorkerCount - len(wp.workers)
-			fmt.Println("Ideal worker count:", wp.idealWorkerCount, "ideal-current count:", count)
-			if count > 0 {
-				for i := 0; i < count; i++ {
-					wp.workerIdNum++
-					id := fmt.Sprintf("worker-%d", wp.workerIdNum)
-					wp.workers[id] = wp.createWorker(id)
-				}
-			}
-			wp.startAllWorkers()
-		}
-	}
 }
 
 // ----------------------------------------------------------------------------
@@ -107,6 +92,28 @@ func (wp *WorkerPool) startAllWorkers() error {
 	for id, worker := range wp.workers {
 		if !worker.started {
 			fmt.Println("Starting", id)
+			worker.Start()
+		}
+	}
+	return nil
+}
+
+// ----------------------------------------------------------------------------
+
+func (wp *WorkerPool) cleanup(worker *Worker) {
+	fmt.Println("cleanup", worker.id)
+	worker.Stop()
+	close(worker.quit)
+	delete(wp.workers, worker.id)
+}
+
+// ----------------------------------------------------------------------------
+
+func (wp *WorkerPool) Start() error {
+
+	for id, worker := range wp.workers {
+		if !worker.started {
+			fmt.Println("Starting new", id)
 			go worker.Start()
 		}
 	}
@@ -115,20 +122,10 @@ func (wp *WorkerPool) startAllWorkers() error {
 
 // ----------------------------------------------------------------------------
 
-func (wp *WorkerPool) Start() error {
-	// Worker nanny
-	go wp.nanny()
-
-	wp.startAllWorkers()
-	return nil
-}
-
-// ----------------------------------------------------------------------------
-
-func (wp *WorkerPool) createWorker(id string) *Worker {
+func (wp *WorkerPool) createWorker(ctx context.Context, id string) *Worker {
 	fmt.Println("Creating", id)
 	return &Worker{
-		ctx:     wp.ctx,
+		done:    ctx.Done(),
 		id:      id,
 		jobQ:    wp.jobQ,
 		quit:    make(chan struct{}),
@@ -201,7 +198,7 @@ var _ WorkerPoolFunctions = (*WorkerPool)(nil)
 func NewWorkerPool(ctx context.Context, cancel func(), workerCount int, jobQ chan Job, shutdownTimeout time.Duration) WorkerPool {
 
 	workerPool := WorkerPool{
-		ctx:     ctx,
+		done:    ctx.Done(),
 		jobQ:    jobQ,
 		workers: make(map[string]*Worker),
 	}
@@ -209,7 +206,7 @@ func NewWorkerPool(ctx context.Context, cancel func(), workerCount int, jobQ cha
 
 	// create a number of workers.
 	for i := 0; i < workerCount; i++ {
-		workerPool.AddWorker()
+		workerPool.AddWorker(ctx)
 	}
 	return workerPool
 }
@@ -243,10 +240,12 @@ func (w *Worker) Start() {
 	for {
 		// use select to test if our context has completed
 		select {
-		case <-w.ctx.Done():
+		case <-w.done:
+			// stop when all work is cancelled
 			w.Stop()
 			return
 		case <-w.quit:
+			// stop when this worker is asked to quit
 			w.Stop()
 			return
 		case j := <-w.jobQ:
