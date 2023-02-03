@@ -126,8 +126,8 @@ func (wp *WorkerPoolImpl) RemoveWorker() error {
 
 // ----------------------------------------------------------------------------
 
+// Method starts all the defined workers in the WorkerPool
 func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
-
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
 	for id, worker := range wp.workers {
@@ -141,6 +141,7 @@ func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
 
 // ----------------------------------------------------------------------------
 
+// internal method for creating workers.
 func (wp *WorkerPoolImpl) createWorker(id string) *Worker {
 	fmt.Println("Creating", id)
 	return &Worker{
