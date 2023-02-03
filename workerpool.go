@@ -164,18 +164,11 @@ func (w *Worker) Start(ctx context.Context) {
 		if r := recover(); r != nil {
 			if err, ok := r.(error); ok {
 				fmt.Println(w.id, "recover", err)
-				// w.setError(err)
 			} else {
 				fmt.Println(w.id, "recover panic", r)
-				// w.setError(fmt.Errorf("panic happened %v", r))
 			}
-			// } else {
-			// a little tricky go code here.
-			//  err is picked up from the doWork return
-			// w.setError(err)
 
 			// restart this worker after panic
-			fmt.Println("Stop and re-start worker after panic")
 			w.Start(ctx)
 		}
 	}()
