@@ -8,18 +8,8 @@ import (
 )
 
 // ----------------------------------------------------------------------------
-
-type Job interface {
-	Execute() error
-	OnError(error)
-}
-
-type WorkerPool interface {
-	AddWorker() error
-	GetWorkerCount() int
-	RemoveWorker() error
-	Start(context.Context) error
-}
+// Internal Type
+// ----------------------------------------------------------------------------
 
 type WorkerPoolImpl struct {
 	jobQ             chan Job
@@ -34,6 +24,34 @@ type Worker struct {
 	jobQ    <-chan Job
 	quit    chan struct{}
 	running bool
+}
+
+var ErrNoWorkers = fmt.Errorf("attempted to create a WorkerPool with no workers")
+var ErrNilJobQueue = fmt.Errorf("attempted to create a WorkerPool without a job queue")
+
+// ----------------------------------------------------------------------------
+
+// Create a new WorkerPool
+func NewWorkerPool(workerCount int, jobQ chan Job) (WorkerPool, error) {
+
+	if workerCount < 1 {
+		return nil, ErrNoWorkers
+	}
+
+	if jobQ == nil {
+		return nil, ErrNilJobQueue
+	}
+
+	workerPool := &WorkerPoolImpl{
+		jobQ:    jobQ,
+		workers: make(map[string]*Worker),
+	}
+
+	// create a number of workers.
+	for i := 0; i < workerCount; i++ {
+		workerPool.AddWorker()
+	}
+	return workerPool, nil
 }
 
 // ----------------------------------------------------------------------------
@@ -151,22 +169,6 @@ func (wp *WorkerPoolImpl) createWorker(id string) *Worker {
 // ----------------------------------------------------------------------------
 
 var _ WorkerPool = (*WorkerPoolImpl)(nil)
-
-// ----------------------------------------------------------------------------
-
-func NewWorkerPool(ctx context.Context, workerCount int, jobQ chan Job) WorkerPoolImpl {
-
-	workerPool := WorkerPoolImpl{
-		jobQ:    jobQ,
-		workers: make(map[string]*Worker),
-	}
-
-	// create a number of workers.
-	for i := 0; i < workerCount; i++ {
-		workerPool.AddWorker()
-	}
-	return workerPool
-}
 
 // ----------------------------------------------------------------------------
 
