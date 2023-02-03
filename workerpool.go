@@ -130,9 +130,8 @@ func (wp *WorkerPoolImpl) RemoveWorker() error {
 func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
 	wp.lock.Lock()
 	defer wp.lock.Unlock()
-	for id, worker := range wp.workers {
+	for _, worker := range wp.workers {
 		if !worker.running {
-			fmt.Println("Starting new", id)
 			go worker.Start(ctx)
 		}
 	}
@@ -143,7 +142,6 @@ func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
 
 // internal method for creating workers.
 func (wp *WorkerPoolImpl) createWorker(id string) *Worker {
-	fmt.Println("Creating", id)
 	return &Worker{
 		id:      id,
 		jobQ:    wp.jobQ,
