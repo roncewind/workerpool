@@ -24,6 +24,7 @@ type Worker struct {
 	currentJob Job
 	id         string
 	jobQ       <-chan Job
+	lock       sync.Mutex
 	quit       chan struct{}
 	running    bool
 }
@@ -92,7 +93,7 @@ func (wp *WorkerPoolImpl) GetRunningWorkerCount() int {
 	count := 0
 	for _, worker := range wp.workers {
 		// fmt.Println("running:", worker.id, worker.running)
-		if worker.running {
+		if worker.getRunning() {
 			count++
 		}
 	}
@@ -116,7 +117,7 @@ func (wp *WorkerPoolImpl) RemoveWorker() error {
 	stoppedId := ""
 	for k := range wp.workers {
 		keys = append(keys, k)
-		if !wp.workers[k].running {
+		if !wp.workers[k].getRunning() {
 			stoppedId = k
 			break
 		}
@@ -142,7 +143,7 @@ func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
 	defer wp.lock.Unlock()
 	for _, worker := range wp.workers {
 		// fmt.Println(worker.id)
-		if !worker.running {
+		if !worker.getRunning() {
 			// fmt.Println("Starting ", worker.id)
 			go worker.Start(ctx)
 		}
@@ -188,7 +189,7 @@ func (w *Worker) Start(ctx context.Context) {
 			w.Start(ctx)
 		}
 	}()
-	w.running = true
+	w.setRunning(true)
 	for {
 		select {
 		case <-ctx.Done():
@@ -209,9 +210,27 @@ func (w *Worker) Start(ctx context.Context) {
 // Stop the workers, this only sets running to false.  For this working to quit,
 // issue: `close(worker.quit)`
 func (w *Worker) Stop() {
-	if !w.running {
+	if !w.getRunning() {
 		return
 	}
 	// TODO:  shutdown worker gracefully?? is there anything else to do?
-	w.running = false
+	w.setRunning(false)
+}
+
+// ----------------------------------------------------------------------------
+
+// Thread safe setter for if this worker is running
+func (w *Worker) setRunning(b bool) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	w.running = b
+}
+
+// ----------------------------------------------------------------------------
+
+// Thread safe setter for if this worker is running
+func (w *Worker) getRunning() bool {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	return w.running
 }
