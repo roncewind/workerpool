@@ -63,8 +63,8 @@ func TestWorkerPool_ContextCancelRestart(t *testing.T) {
 	wp.Start(ctx)
 	time.Sleep(1 * time.Second)
 	workerCount = wp.GetRunningWorkerCount()
-	if numberOfWorkers != workerCount {
-		t.Fatalf("expected %d workers, found %d", numberOfWorkers, workerCount)
+	if workerCount != 0 {
+		t.Fatalf("expected %d workers, found %d", 0, workerCount)
 	}
 	cancel()
 }
@@ -135,8 +135,8 @@ func TestWorkerPool_GetRunningWorkerCount(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	workerCount = wp.GetRunningWorkerCount()
-	if numberOfWorkers != workerCount {
-		t.Fatalf("expected %d workers, found %d", numberOfWorkers, workerCount)
+	if workerCount != 0 {
+		t.Fatalf("expected %d workers, found %d", 0, workerCount)
 	}
 	cancel()
 }
@@ -152,7 +152,6 @@ func TestWorkerPool_RemoveWorker(t *testing.T) {
 	}
 
 	wp.Start(ctx)
-	numberOfRunningWorkers := numberOfWorkers
 
 	// Wait a moment for the workers to start up:
 	time.Sleep(1 * time.Second)
@@ -165,15 +164,15 @@ func TestWorkerPool_RemoveWorker(t *testing.T) {
 	// add a second worker, but don't start it
 	wp.AddWorker()
 	workerCount = wp.GetRunningWorkerCount()
-	if numberOfWorkers != workerCount {
-		t.Fatalf("expected %d running workers, found %d", numberOfRunningWorkers, workerCount)
+	if workerCount != 0 {
+		t.Fatalf("expected %d running workers, found %d", 0, workerCount)
 	}
 
 	//remove the unstarted worker
 	wp.RemoveWorker()
 	workerCount = wp.GetRunningWorkerCount()
-	if numberOfWorkers != workerCount {
-		t.Fatalf("expected %d running workers, found %d", numberOfRunningWorkers, workerCount)
+	if workerCount != 0 {
+		t.Fatalf("expected %d running workers, found %d", 0, workerCount)
 	}
 
 	//remove the only worker
@@ -286,8 +285,8 @@ func TestWorkerPool_PanicJobExecution(t *testing.T) {
 	// Wait a moment for the workers to execute the job:
 	time.Sleep(1 * time.Second)
 	workerCount = wp.GetRunningWorkerCount()
-	if numberOfWorkers != workerCount {
-		t.Fatalf("expected %d running workers after panic, found %d", numberOfWorkers, workerCount)
+	if workerCount != 0 {
+		t.Fatalf("expected %d running workers after panic, found %d", 0, workerCount)
 	}
 	cancel()
 }
@@ -331,5 +330,77 @@ func TestWorkerPool_ErrorJobExecution(t *testing.T) {
 	}
 	// Wait a moment for the workers to execute the job:
 	time.Sleep(1 * time.Second)
+	cancel()
+}
+
+// ----------------------------------------------------------------------------
+// Log running Job implementation
+
+type LongJob struct {
+	seconds int
+}
+
+// ----------------------------------------------------------------------------
+// make sure ErrorJob implements the Job interface
+
+var _ Job = (*LongJob)(nil)
+
+// ----------------------------------------------------------------------------
+// Job implementation
+
+func (j *LongJob) Execute() error {
+	time.Sleep(time.Duration(j.seconds) * time.Second)
+	return nil
+}
+
+func (j *LongJob) OnError(err error) {
+}
+
+func TestWorkerPool_LongJobExecution(t *testing.T) {
+	numberOfWorkers := 1
+	jobQ := make(chan Job, numberOfWorkers)
+	ctx, cancel := context.WithCancel(context.Background())
+	jobQ <- &LongJob{seconds: 3}
+
+	wp, err := NewWorkerPool(numberOfWorkers, jobQ)
+	if err != nil {
+		t.Fatal("error creating worker pool:", err)
+	}
+
+	wp.Start(ctx)
+	time.Sleep(1 * time.Second)
+	workerCount := wp.GetRunningWorkerCount()
+	if numberOfWorkers != workerCount {
+		t.Fatalf("expected %d workers, found %d", numberOfWorkers, workerCount)
+	}
+	// Wait a moment for the workers to execute the job:
+	time.Sleep(1 * time.Second)
+	cancel()
+}
+
+func TestWorkerPool_RemoveRunningWorker(t *testing.T) {
+	numberOfWorkers := 1
+	jobQ := make(chan Job, numberOfWorkers)
+	ctx, cancel := context.WithCancel(context.Background())
+	jobQ <- &LongJob{seconds: 3}
+
+	wp, err := NewWorkerPool(numberOfWorkers, jobQ)
+	if err != nil {
+		t.Fatal("error creating worker pool:", err)
+	}
+
+	wp.Start(ctx)
+	time.Sleep(1 * time.Second)
+	workerCount := wp.GetRunningWorkerCount()
+	if numberOfWorkers != workerCount {
+		t.Fatalf("expected %d workers, found %d", numberOfWorkers, workerCount)
+	}
+	//remove the only worker
+	wp.RemoveWorker()
+	numberOfWorkers--
+	workerCount = wp.GetWorkerCount()
+	if numberOfWorkers != workerCount {
+		t.Fatalf("expected %d workers, found %d", numberOfWorkers, workerCount)
+	}
 	cancel()
 }
