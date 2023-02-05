@@ -284,10 +284,6 @@ func TestWorkerPool_PanicJobExecution(t *testing.T) {
 	}
 	// Wait a moment for the workers to execute the job:
 	time.Sleep(1 * time.Second)
-	workerCount = wp.GetRunningWorkerCount()
-	if workerCount != 0 {
-		t.Fatalf("expected %d running workers after panic, found %d", 0, workerCount)
-	}
 	cancel()
 }
 

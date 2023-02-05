@@ -10,14 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -
 
-## [0.0.1] - 2023-02-04
+## [v0.0.1] - 2023-02-04
 
-### Changed in 0.0.1
+### Changed in v0.0.1
 
-- Updated worker running logic and test cases
+- Updated worker running & started logic and test cases
 
-## [0.0.0] - 2023-02-03
+## [v0.0.0] - 2023-02-03
 
-### Changed in 0.0.0
+### Changed in v0.0.0
 
 - Initial release

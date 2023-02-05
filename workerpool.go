@@ -27,6 +27,7 @@ type Worker struct {
 	lock       sync.Mutex
 	quit       chan struct{}
 	running    bool
+	started    bool
 }
 
 var ErrNoWorkers = fmt.Errorf("attempted to create a WorkerPool with no workers")
@@ -64,8 +65,8 @@ func NewWorkerPool(workerCount int, jobQ chan Job) (WorkerPool, error) {
 // Add a worker to the pool, the worker can then be started with
 // `workerPool.Start(ctx)`.
 func (wp *WorkerPoolImpl) AddWorker() error {
-	wp.lock.Lock()
 	defer wp.lock.Unlock()
+	wp.lock.Lock()
 	wp.idealWorkerCount++
 	wp.workerIdNum++
 	id := fmt.Sprintf("worker-%d", wp.workerIdNum)
@@ -79,8 +80,8 @@ func (wp *WorkerPoolImpl) AddWorker() error {
 // Get the current count of workers in the pool, they may not all be running.
 // To start workers that are not running use the Start(ctx) method
 func (wp *WorkerPoolImpl) GetWorkerCount() int {
-	wp.lock.Lock()
 	defer wp.lock.Unlock()
+	wp.lock.Lock()
 	return len(wp.workers)
 }
 
@@ -88,8 +89,8 @@ func (wp *WorkerPoolImpl) GetWorkerCount() int {
 
 // Get the current count of workers that are running.
 func (wp *WorkerPoolImpl) GetRunningWorkerCount() int {
-	wp.lock.Lock()
 	defer wp.lock.Unlock()
+	wp.lock.Lock()
 	count := 0
 	for _, worker := range wp.workers {
 		// fmt.Println("running:", worker.id, worker.running)
@@ -117,7 +118,7 @@ func (wp *WorkerPoolImpl) RemoveWorker() error {
 	stoppedId := ""
 	for k := range wp.workers {
 		keys = append(keys, k)
-		if !wp.workers[k].getRunning() {
+		if !wp.workers[k].getStarted() {
 			stoppedId = k
 			break
 		}
@@ -143,7 +144,7 @@ func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
 	defer wp.lock.Unlock()
 	for _, worker := range wp.workers {
 		// fmt.Println(worker.id)
-		if !worker.getRunning() {
+		if !worker.getStarted() {
 			// fmt.Println("Starting ", worker.id)
 			go worker.Start(ctx)
 		}
@@ -189,7 +190,7 @@ func (w *Worker) Start(ctx context.Context) {
 			w.Start(ctx)
 		}
 	}()
-	w.setRunning(true)
+	w.setStarted(true)
 	for {
 		select {
 		case <-ctx.Done():
@@ -197,10 +198,12 @@ func (w *Worker) Start(ctx context.Context) {
 		case <-w.quit:
 			return
 		case w.currentJob = <-w.jobQ:
+			w.setRunning(true)
 			err := w.currentJob.Execute()
 			if err != nil {
 				w.currentJob.OnError(err)
 			}
+			w.setRunning(false)
 		}
 	}
 }
@@ -210,19 +213,37 @@ func (w *Worker) Start(ctx context.Context) {
 // Stop the workers, this only sets running to false.  For this working to quit,
 // issue: `close(worker.quit)`
 func (w *Worker) Stop() {
-	if !w.getRunning() {
+	if !w.getStarted() {
 		return
 	}
 	// TODO:  shutdown worker gracefully?? is there anything else to do?
-	w.setRunning(false)
+	w.setStarted(false)
+}
+
+// ----------------------------------------------------------------------------
+
+// Thread safe setter for if this worker is running
+func (w *Worker) setStarted(b bool) {
+	defer w.lock.Unlock()
+	w.lock.Lock()
+	w.started = b
+}
+
+// ----------------------------------------------------------------------------
+
+// Thread safe setter for if this worker is running
+func (w *Worker) getStarted() bool {
+	defer w.lock.Unlock()
+	w.lock.Lock()
+	return w.started
 }
 
 // ----------------------------------------------------------------------------
 
 // Thread safe setter for if this worker is running
 func (w *Worker) setRunning(b bool) {
-	w.lock.Lock()
 	defer w.lock.Unlock()
+	w.lock.Lock()
 	w.running = b
 }
 
@@ -230,7 +251,7 @@ func (w *Worker) setRunning(b bool) {
 
 // Thread safe setter for if this worker is running
 func (w *Worker) getRunning() bool {
-	w.lock.Lock()
 	defer w.lock.Unlock()
+	w.lock.Lock()
 	return w.running
 }
