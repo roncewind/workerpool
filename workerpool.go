@@ -189,6 +189,7 @@ func (w *Worker) Start(ctx context.Context) {
 			w.Start(ctx)
 		}
 	}()
+	w.setRunning(true)
 	for {
 		select {
 		case <-ctx.Done():
@@ -196,12 +197,10 @@ func (w *Worker) Start(ctx context.Context) {
 		case <-w.quit:
 			return
 		case w.currentJob = <-w.jobQ:
-			w.setRunning(true)
 			err := w.currentJob.Execute()
 			if err != nil {
 				w.currentJob.OnError(err)
 			}
-			w.setRunning(false)
 		}
 	}
 }
