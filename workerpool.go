@@ -13,11 +13,11 @@ import (
 // ----------------------------------------------------------------------------
 
 type WorkerPoolImpl struct {
-	jobQ             chan Job
-	idealWorkerCount int
-	lock             sync.Mutex
-	workers          map[string]*Worker
-	workerIdNum      int
+	jobQ    chan Job
+	lock    sync.Mutex
+	workers map[string]*Worker
+	//assumes fewer than 9,223,372,036,854,775,807 workers
+	workerIdNum int64
 }
 
 type Worker struct {
@@ -67,7 +67,6 @@ func NewWorkerPool(workerCount int, jobQ chan Job) (WorkerPool, error) {
 func (wp *WorkerPoolImpl) AddWorker() error {
 	defer wp.lock.Unlock()
 	wp.lock.Lock()
-	wp.idealWorkerCount++
 	wp.workerIdNum++
 	id := fmt.Sprintf("worker-%d", wp.workerIdNum)
 	worker := wp.createWorker(id)
@@ -106,9 +105,8 @@ func (wp *WorkerPoolImpl) GetRunningWorkerCount() int {
 // Remove a worker from the pool, this will remove non-running workers first
 // followed by oldest workers next.
 func (wp *WorkerPoolImpl) RemoveWorker() error {
-	wp.idealWorkerCount--
-	wp.lock.Lock()
 	defer wp.lock.Unlock()
+	wp.lock.Lock()
 	workerCount := len(wp.workers)
 	if workerCount <= 0 {
 		return ErrNoWorkersToRemove
@@ -140,8 +138,8 @@ func (wp *WorkerPoolImpl) RemoveWorker() error {
 
 // Method starts all the defined workers in the WorkerPool
 func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
-	wp.lock.Lock()
 	defer wp.lock.Unlock()
+	wp.lock.Lock()
 	for _, worker := range wp.workers {
 		// fmt.Println(worker.id)
 		if !worker.getStarted() {
