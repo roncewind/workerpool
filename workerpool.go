@@ -215,6 +215,7 @@ func (w *Worker) Stop() {
 		return
 	}
 	// TODO:  shutdown worker gracefully?? is there anything else to do?
+	w.setRunning(false)
 	w.setStarted(false)
 }
 
