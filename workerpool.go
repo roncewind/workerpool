@@ -30,10 +30,6 @@ type Worker struct {
 	started    bool
 }
 
-var ErrNoWorkers = fmt.Errorf("attempted to create a WorkerPool with no workers")
-var ErrNilJobQueue = fmt.Errorf("attempted to create a WorkerPool without a job queue")
-var ErrNoWorkersToRemove = fmt.Errorf("all workers removed, none to remove")
-
 // ----------------------------------------------------------------------------
 
 // Create a new WorkerPool with the given number of workers pulling jobs from
@@ -181,7 +177,7 @@ func (w *Worker) Start(ctx context.Context) {
 			} else if str, ok := r.(string); ok {
 				w.currentJob.OnError(errors.New(str))
 			} else {
-				w.currentJob.OnError(errors.New("unknown error"))
+				w.currentJob.OnError(ErrPanic)
 			}
 
 			// restart this worker after panic
