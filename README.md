@@ -1,5 +1,4 @@
 # workerpool
-## Synopsis
 
 Implements a generic worker pool in Go.
 
