@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 )
 
 // ----------------------------------------------------------------------------
@@ -205,7 +206,7 @@ func (w *Worker) Start(ctx context.Context) {
 				w.countJobsDone++
 			}
 			if w.countJobsDone%10000 == 0 {
-				fmt.Println(w.id, "executed", w.countJobsDone, "jobs and", w.countJobsError, "errored")
+				fmt.Println(time.Now(), w.id, "executed", w.countJobsDone, "jobs and", w.countJobsError, "errored")
 			}
 			w.setRunning(false)
 		}
