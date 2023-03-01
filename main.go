@@ -10,7 +10,7 @@ import (
 // ----------------------------------------------------------------------------
 
 type Job interface {
-	Execute() error
+	Execute(context.Context) error
 	OnError(error)
 }
 

@@ -21,13 +21,15 @@ type WorkerPoolImpl struct {
 }
 
 type Worker struct {
-	currentJob Job
-	id         string
-	jobQ       <-chan Job
-	lock       sync.Mutex
-	quit       chan struct{}
-	running    bool
-	started    bool
+	countJobsError int
+	countJobsDone  int
+	currentJob     Job
+	id             string
+	jobQ           <-chan Job
+	lock           sync.Mutex
+	quit           chan struct{}
+	running        bool
+	started        bool
 }
 
 // ----------------------------------------------------------------------------
@@ -151,10 +153,12 @@ func (wp *WorkerPoolImpl) Start(ctx context.Context) error {
 // internal method for creating workers.
 func (wp *WorkerPoolImpl) createWorker(id string) *Worker {
 	return &Worker{
-		id:      id,
-		jobQ:    wp.jobQ,
-		quit:    make(chan struct{}),
-		running: false,
+		countJobsError: 0,
+		countJobsDone:  0,
+		id:             id,
+		jobQ:           wp.jobQ,
+		quit:           make(chan struct{}),
+		running:        false,
 	}
 }
 
@@ -193,9 +197,15 @@ func (w *Worker) Start(ctx context.Context) {
 			return
 		case w.currentJob = <-w.jobQ:
 			w.setRunning(true)
-			err := w.currentJob.Execute()
+			err := w.currentJob.Execute(ctx)
 			if err != nil {
 				w.currentJob.OnError(err)
+				w.countJobsError++
+			} else {
+				w.countJobsDone++
+			}
+			if w.countJobsDone%10000 == 0 {
+				fmt.Println(w.id, "executed", w.countJobsDone, "jobs and", w.countJobsError, "errored")
 			}
 			w.setRunning(false)
 		}

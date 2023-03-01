@@ -205,7 +205,7 @@ var _ Job = (*TrivialJob)(nil)
 // ----------------------------------------------------------------------------
 // Job implementation
 
-func (j *TrivialJob) Execute() error {
+func (j *TrivialJob) Execute(ctx context.Context) error {
 	myWork := 50
 	// simulate doing some work... for "myWork" number of Milliseconds
 	time.Sleep(time.Duration(myWork) * time.Millisecond)
@@ -251,7 +251,7 @@ var _ Job = (*PanicJob)(nil)
 // ----------------------------------------------------------------------------
 // Job implementation
 
-func (j *PanicJob) Execute() error {
+func (j *PanicJob) Execute(ctx context.Context) error {
 	panic(j.err)
 }
 
@@ -301,7 +301,7 @@ var _ Job = (*ErrorJob)(nil)
 // ----------------------------------------------------------------------------
 // Job implementation
 
-func (j *ErrorJob) Execute() error {
+func (j *ErrorJob) Execute(ctx context.Context) error {
 	return errors.New("error")
 }
 
@@ -344,7 +344,7 @@ var _ Job = (*LongJob)(nil)
 // ----------------------------------------------------------------------------
 // Job implementation
 
-func (j *LongJob) Execute() error {
+func (j *LongJob) Execute(ctx context.Context) error {
 	time.Sleep(time.Duration(j.seconds) * time.Second)
 	return nil
 }
