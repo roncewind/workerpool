@@ -8,7 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+-
+
+## [v0.0.2] - 2023-03-01
+
+### Changed in v0.0.2
+
 - updated worker id data type to be explicit
+- added logging for ever 10k jobs executed
+- added context to Execute
 
 ## [v0.0.1] - 2023-02-05
 
