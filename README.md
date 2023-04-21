@@ -14,6 +14,8 @@ Implements a generic worker pool in Go.
 
 Examples of using `workerpool` can be seen in ...
 
+At this point you're probably better of just using [conc](https://github.com/sourcegraph/conc)
+
 ### Developing
 
 ### Testing
